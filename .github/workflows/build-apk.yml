@@ -32,7 +32,9 @@ jobs:
         pip install flet[build]
     
     - name: Build APK
-      run: flet build apk
+      run: yes | flet build apk
+      env:
+        FLET_ANDROID_SDK_AUTO_INSTALL: "1"
     
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
