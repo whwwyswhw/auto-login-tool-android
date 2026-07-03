@@ -38,7 +38,7 @@ jobs:
         export FLET_ACCEPT_PROMPTS=yes
         yes | flet build apk --non-interactive || true
         # If first build fails, try again without --non-interactive
-        if [ ! -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+        if [ ! -f "build/apk/*.apk" ]; then
           echo "First build attempt failed, retrying..."
           yes | flet build apk
         fi
@@ -46,13 +46,13 @@ jobs:
     
     - name: Check APK exists
       run: |
-        ls -lh build/app/outputs/flutter-apk/ || echo "APK directory not found"
-        test -f build/app/outputs/flutter-apk/app-release.apk && echo "APK built successfully" || echo "APK not found"
+        ls -lh build/apk/ || echo "APK directory not found"
+        test -f build/apk/*.apk && echo "APK built successfully" || echo "APK not found"
     
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       if: success()
       with:
         name: pk10-android-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
-        if-no-files-found: warn
+        path: build/apk/*.apk
+        if-no-files-found: error
