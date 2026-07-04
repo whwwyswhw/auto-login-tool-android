@@ -40,5 +40,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: pk10-android-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
+        path: build/apk/*.apk
         if-no-files-found: error
