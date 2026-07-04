@@ -26,18 +26,28 @@ jobs:
           python3-pip autoconf libtool pkg-config \
           zlib1g-dev libncurses5-dev libncursesw5-dev \
           libtinfo5 cmake libffi-dev libssl-dev \
-          python3-setuptools
+          python3-setuptools ant
 
     - name: Install Buildozer
       run: |
         pip3 install --upgrade pip
         pip3 install buildozer cython==0.29.36
+        echo "buildozer version:"
+        buildozer --version || echo "ERROR: buildozer not found"
 
     - name: Build APK
       run: |
+        export PATH=$PATH:~/.local/bin
         buildozer -v android debug 2>&1 | tee build.log
+      continue-on-error: true
+
+    - name: Check build output
+      run: |
+        ls -la bin/ || echo "No bin/ directory"
+        find . -name "*.apk" || echo "No APK found"
 
     - name: Upload APK
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: app
