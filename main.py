@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-PK10 Lottery Betting Assistant - Flet v1.6
+PK10 Lottery Betting Assistant - Flet v1.6  # v1.6-rebuild
 Fixed: Widget lifetime - all page widgets stored as page attributes
 Fixed: Removed scroll complexity for mobile
 """
