@@ -1,193 +1,192 @@
 # -*- coding: utf-8 -*-
 """
-PK10 Betting Assistant - Flet v4.2
-- 开奖/游戏选择工作（真实 API）
-- 颜色框 32x32，文字居中（用 Column alignment，不用 Container alignment）
+PK10 Betting Assistant - Kivy version v1.0
 """
-import flet as ft
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.spinner import Spinner
+from kivy.clock import Clock
+from kivy.utils import get_color_from_hex
 import requests
 import json
 import os
 import threading
-
-# 配置文件路径
-CFG_PATH = os.path.join(os.path.expanduser("~"), "pk10_config.json")
 
 # 球号颜色（标准 PK10）
 BALL_COLORS = {
     "1": "#E6DE00", "2": "#0092DD", "3": "#4C4C4C", "4": "#FF8C00", "5": "#00CCCC",
     "6": "#8B00C9", "7": "#BCBCBC", "8": "#E60000", "9": "#8B0000", "10": "#00AA00"
 }
+BALL_COLORS_KIVY = {k: get_color_from_hex(v) for k, v in BALL_COLORS.items()}
 
-# 游戏配置
 GAMES = {
-    "极速赛车": {"lotCode": "10001", "lottery_url_code": "jisusaiche"},
-    "幸运飞艇": {"lotCode": "10002", "lottery_url_code": "xingyunfeiting"},
+    "极速赛车": "10001",
+    "幸运飞艇": "10002",
 }
-
-# 开奖 API
 DRAW_API = "https://api.api68.com/pks/getLotteryPksInfo.do"
+CFG_PATH = os.path.join(os.path.expanduser("~"), "pk10_config.json")
 
-def main(page: ft.Page):
-    page.title = "PK10"
-    page.theme_mode = ft.ThemeMode.DARK
-    
-    # State
-    state = {
-        "selected": set(),
-        "current_game": "极速赛车",
-        "draw_data": None,
-    }
-    
-    # ---- UI 控件 ----
-    game_dd = ft.Dropdown(
-        label="游戏",
-        width=120,
-        options=[ft.dropdown.Option(k) for k in GAMES.keys()],
-        value="极速赛车",
-        on_change=lambda e: setattr(state, 'current_game', e.data)
-    )
-    period = ft.Text("期号: --", size=12, color="white", width=200)
-    code = ft.Text("开奖: --", size=11, color="grey", width=320)
-    next_issue = ft.Text("下期: --", size=11, color="cyan", width=200)
-    status = ft.Text("● 离线", size=11, color="red", width=80)
-    sel = ft.Text("已选: --", size=12, color="yellow", width=280)
-    amt = ft.TextField(value="10", label="金额", width=100, text_size=13)
-    user_in = ft.TextField(label="账号", width=280, text_size=13)
-    pwd_in = ft.TextField(label="密码", password=True, can_reveal_password=True, width=280, text_size=13)
-    log = ft.Text("日志: 等待操作...", size=11, color="white", width=320)
-    
-    # Load config
-    if os.path.exists(CFG_PATH):
-        try:
-            with open(CFG_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-                user_in.value = cfg.get("user", "")
-                pwd_in.value = cfg.get("pwd", "")
-                game_dd.value = cfg.get("game", "极速赛车")
-                state["current_game"] = game_dd.value
-        except: pass
-    
-    def save_cfg():
-        try:
-            with open(CFG_PATH, "w", encoding="utf-8") as f:
-                json.dump({
-                    "user": user_in.value,
-                    "pwd": pwd_in.value,
-                    "game": game_dd.value
-                }, f)
-        except: pass
-    
-    user_in.on_change = lambda _: save_cfg()
-    pwd_in.on_change = lambda _: save_cfg()
-    
-    def log_msg(msg):
-        log.value = f"日志: {msg}"
-        page.update()
-    
-    def upd_sel():
-        sel.value = "已选: " + (",".join(sorted(state["selected"], key=int)) if state["selected"] else "--")
-        page.update()
-    
-    def on_ball(n):
-        def h(e):
-            if n in state["selected"]:
-                state["selected"].remove(n)
-            else:
-                state["selected"].add(n)
-            upd_sel()
-        return h
-    
-    # ---- 彩色球：32x32，文字居中（Column 包裹，不用 Container.alignment）----
-    def make_ball(i):
-        return ft.Container(
-            content=ft.Column(
-                [ft.Text(str(i), size=12, color="black", weight=ft.FontWeight.BOLD)],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=0
-            ),
-            bgcolor=BALL_COLORS[str(i)],
-            width=32, height=32,
-            on_click=on_ball(i), data=i
+
+class PK10App(App):
+    def build(self):
+        self.selected = set()
+        self.current_game = "极速赛车"
+        self.session = requests.Session()
+
+        root = BoxLayout(orientation="vertical", padding=8, spacing=4)
+
+        # 顶栏：游戏选择 + 期号 + 在线状态
+        top = BoxLayout(orientation="horizontal", size_hint_y=None, height=36)
+        self.game_spinner = Spinner(
+            text="极速赛车", values=list(GAMES.keys()),
+            size_hint_x=None, width=120
         )
-    
-    ball_row = ft.Row([make_ball(i) for i in range(1, 11)], wrap=True, spacing=4)
-    
-    # ---- 开奖获取（真实 API）----
-    def do_refresh(e=None):
-        log_msg("获取开奖中...")
-        threading.Thread(target=_fetch_draw, daemon=True).start()
-    
-    def _fetch_draw():
-        try:
-            lot_code = GAMES[state["current_game"]]["lotCode"]
-            r = requests.get(
-                DRAW_API,
-                params={"lotCode": lot_code},
-                timeout=15,
-                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://kj.1689683.com/"}
+        self.game_spinner.bind(text=self._on_game_change)
+        self.period_lbl = Label(text="期号: --", size_hint_x=1)
+        self.status_lbl = Label(text="● 离线", color=(1, 0, 0, 1),
+                               size_hint_x=None, width=80)
+        top.add_widget(self.game_spinner)
+        top.add_widget(self.period_lbl)
+        top.add_widget(self.status_lbl)
+        root.add_widget(top)
+
+        # 开奖信息
+        self.code_lbl = Label(text="开奖: --", size_hint_y=None, height=28)
+        self.next_lbl = Label(text="下期: --", size_hint_y=None, height=28)
+        root.add_widget(self.code_lbl)
+        root.add_widget(self.next_lbl)
+
+        # 选号区
+        root.add_widget(Label(text="选号 (1-10):", size_hint_y=None, height=28,
+                              halign="left"))
+        balls = GridLayout(cols=5, spacing=4, size_hint_y=None, height=68)
+        self.ball_btns = {}
+        for i in range(1, 11):
+            btn = Button(
+                text=str(i),
+                background_normal="",
+                background_color=BALL_COLORS_KIVY[str(i)],
+                color=(0, 0, 0, 1),
+                bold=True,
+                on_press=self._on_ball_press
             )
-            if r.status_code != 200:
-                log_msg(f"HTTP {r.status_code}")
+            btn._num = i
+            self.ball_btns[i] = btn
+            balls.add_widget(btn)
+        root.add_widget(balls)
+
+        # 已选 + 金额
+        self.sel_lbl = Label(text="已选: --", size_hint_y=None, height=28)
+        self.amt_in = TextInput(text="10", size_hint_y=None, height=36,
+                                multiline=False, hint_text="金额")
+        root.add_widget(self.sel_lbl)
+        root.add_widget(self.amt_in)
+
+        # 账号/密码
+        self.user_in = TextInput(hint_text="账号", size_hint_y=None, height=36,
+                                 multiline=False)
+        self.pwd_in = TextInput(hint_text="密码", password=True,
+                                size_hint_y=None, height=36, multiline=False)
+        root.add_widget(self.user_in)
+        root.add_widget(self.pwd_in)
+
+        # 按钮行
+        btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=6)
+        for txt, cb in [("登录", self._on_login), ("投注", self._on_bet),
+                        ("刷新", self._on_refresh)]:
+            btn_row.add_widget(Button(text=txt, on_press=cb))
+        root.add_widget(btn_row)
+
+        # 日志
+        self.log_lbl = Label(text="日志: 等待操作...",
+                             size_hint_y=None, height=48)
+        root.add_widget(self.log_lbl)
+
+        # 加载配置 + 自动刷新
+        self._load_cfg()
+        Clock.schedule_once(lambda dt: self._do_refresh(), 2)
+        return root
+
+    # ── 配置 ──
+    def _load_cfg(self):
+        try:
+            with open(CFG_PATH) as f:
+                cfg = json.load(f)
+            self.user_in.text = cfg.get("user", "")
+            self.pwd_in.text = cfg.get("pwd", "")
+            g = cfg.get("game", "极速赛车")
+            if g in GAMES:
+                self.game_spinner.text = g
+                self.current_game = g
+        except Exception:
+            pass
+
+    def _save_cfg(self):
+        try:
+            with open(CFG_PATH, "w") as f:
+                json.dump({"user": self.user_in.text,
+                           "pwd": self.pwd_in.text,
+                           "game": self.game_spinner.text}, f)
+        except Exception:
+            pass
+
+    # ── 选号 ──
+    def _on_ball_press(self, btn):
+        n = btn._num
+        if n in self.selected:
+            self.selected.remove(n)
+            btn.background_color = BALL_COLORS_KIVY[str(n)]
+        else:
+            self.selected.add(n)
+            btn.background_color = (0, 0.7, 0, 1)  # 选中变绿色
+        self.sel_lbl.text = "已选: " + (",".join(map(str, sorted(self.selected)))
+                                        if self.selected else "--")
+
+    # ── 开奖 ──
+    def _on_game_change(self, spinner, text):
+        self.current_game = text
+        self._save_cfg()
+
+    def _on_refresh(self, *a):
+        self.log_lbl.text = "日志: 获取开奖中..."
+        threading.Thread(target=self._fetch_draw, daemon=True).start()
+
+    def _fetch_draw(self):
+        try:
+            r = self.session.get(
+                DRAW_API, params={"lotCode": GAMES[self.current_game]},
+                timeout=10, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            d = r.json().get("result", {}).get("data", {})
+            if not d:
+                self.log_lbl.text = "日志: 暂无数据"
                 return
-            
-            data = r.json()
-            draw_data = data.get("result", {}).get("data", {})
-            if not draw_data:
-                log_msg("暂无开奖数据")
-                return
-            
-            state["draw_data"] = draw_data
-            issue = draw_data.get("preDrawIssue", "--")
-            codes = draw_data.get("preDrawCode", "")
-            next_iss = draw_data.get("drawIssue", "--")
-            draw_time = draw_data.get("drawTime", "")[11:16] if draw_data.get("drawTime") else ""
-            
-            period.value = f"期号: {issue}"
-            code.value = f"开奖: {codes}" if codes else "开奖: --"
-            next_issue.value = f"下期: {next_iss} ({draw_time})" if draw_time else f"下期: {next_iss}"
-            log_msg(f"开奖更新 {issue}")
-            page.update()
-            
-        except Exception as ex:
-            log_msg(f"获取失败: {ex}")
-    
-    # ---- 登录（占位）----
-    def do_login(e):
-        log_msg("登录功能待实现")
-    
-    def do_bet(e):
-        if not state["selected"]:
-            log_msg("请先选号")
+            self.period_lbl.text = f"期号: {d.get('preDrawIssue', '--')}"
+            self.code_lbl.text = f"开奖: {d.get('preDrawCode', '--')}"
+            self.next_lbl.text = f"下期: {d.get('drawIssue', '--')}"
+            self.log_lbl.text = "日志: 开奖更新成功"
+        except Exception as e:
+            self.log_lbl.text = f"日志: 获取失败 {e}"
+
+    # ── 登录/投注（占位）──
+    def _on_login(self, *a):
+        self.log_lbl.text = "日志: 登录功能对接中..."
+        self._save_cfg()
+
+    def _on_bet(self, *a):
+        if not self.selected:
+            self.log_lbl.text = "日志: 请先选号"
             return
-        log_msg(f"投注 {','.join(sorted(state['selected'], key=int))} 金额={amt.value}")
-    
-    # ---- 布局 ----
-    page.add(
-        ft.Row([game_dd, period, status]),
-        code,
-        next_issue,
-        ft.Divider(),
-        ft.Text("选号 (1-10):", size=13, color="white"),
-        ball_row,
-        sel,
-        amt,
-        ft.Divider(),
-        user_in,
-        pwd_in,
-        ft.Row([
-            ft.ElevatedButton("登录", on_click=do_login, width=80),
-            ft.ElevatedButton("投注", on_click=do_bet, width=80),
-            ft.ElevatedButton("刷新", on_click=do_refresh, width=80),
-        ], spacing=6),
-        ft.Divider(),
-        log,
-    )
-    
-    # 启动时自动获取一次开奖
-    do_refresh(None)
-    page.update()
+        nums = ",".join(map(str, sorted(self.selected)))
+        self.log_lbl.text = f"日志: 投注 {nums} 金额={self.amt_in.text}"
+
+    def _do_refresh(self):
+        self._on_refresh()
+
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    PK10App().run()
