@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-PK10 Betting Assistant - Flet v4.1
+PK10 Betting Assistant - Flet v4.2
 - 开奖/游戏选择工作（真实 API）
-- 颜色框缩小 40x40 -> 32x32
-- 文字居中（测试 alignment 兼容性）
+- 颜色框 32x32，文字居中（用 Column alignment，不用 Container alignment）
 """
 import flet as ft
 import requests
 import json
 import os
-import time
 import threading
 
 # 配置文件路径
@@ -39,9 +37,25 @@ def main(page: ft.Page):
         "selected": set(),
         "current_game": "极速赛车",
         "draw_data": None,
-        "logged_in": False,
-        "session": None
     }
+    
+    # ---- UI 控件 ----
+    game_dd = ft.Dropdown(
+        label="游戏",
+        width=120,
+        options=[ft.dropdown.Option(k) for k in GAMES.keys()],
+        value="极速赛车",
+        on_change=lambda e: setattr(state, 'current_game', e.data)
+    )
+    period = ft.Text("期号: --", size=12, color="white", width=200)
+    code = ft.Text("开奖: --", size=11, color="grey", width=320)
+    next_issue = ft.Text("下期: --", size=11, color="cyan", width=200)
+    status = ft.Text("● 离线", size=11, color="red", width=80)
+    sel = ft.Text("已选: --", size=12, color="yellow", width=280)
+    amt = ft.TextField(value="10", label="金额", width=100, text_size=13)
+    user_in = ft.TextField(label="账号", width=280, text_size=13)
+    pwd_in = ft.TextField(label="密码", password=True, can_reveal_password=True, width=280, text_size=13)
+    log = ft.Text("日志: 等待操作...", size=11, color="white", width=320)
     
     # Load config
     if os.path.exists(CFG_PATH):
@@ -64,23 +78,8 @@ def main(page: ft.Page):
                 }, f)
         except: pass
     
-    # ---- UI 控件 ----
-    game_dd = ft.Dropdown(
-        label="游戏",
-        width=120,
-        options=[ft.dropdown.Option(k) for k in GAMES.keys()],
-        value="极速赛车",
-        on_change=lambda e: [save_cfg(), setattr(state, 'current_game', e.data)]
-    )
-    period = ft.Text("期号: --", size=12, color="white", width=200)
-    code = ft.Text("开奖: --", size=11, color="grey", width=320)
-    next_issue = ft.Text("下期: --", size=11, color="cyan", width=200)
-    status = ft.Text("● 离线", size=11, color="red", width=80)
-    sel = ft.Text("已选: --", size=12, color="yellow", width=280)
-    amt = ft.TextField(value="10", label="金额", width=100, text_size=13)
-    user_in = ft.TextField(label="账号", width=280, text_size=13, on_change=lambda _: save_cfg())
-    pwd_in = ft.TextField(label="密码", password=True, can_reveal_password=True, width=280, text_size=13, on_change=lambda _: save_cfg())
-    log = ft.Text("日志: 等待操作...", size=11, color="white", width=320)
+    user_in.on_change = lambda _: save_cfg()
+    pwd_in.on_change = lambda _: save_cfg()
     
     def log_msg(msg):
         log.value = f"日志: {msg}"
@@ -99,16 +98,21 @@ def main(page: ft.Page):
             upd_sel()
         return h
     
-    # ---- 彩色球：32x32，文字居中（测试 alignment）----
-    ball_row = ft.Row([
-        ft.Container(
-            content=ft.Text(str(i), size=12, color="black", weight=ft.FontWeight.BOLD),
+    # ---- 彩色球：32x32，文字居中（Column 包裹，不用 Container.alignment）----
+    def make_ball(i):
+        return ft.Container(
+            content=ft.Column(
+                [ft.Text(str(i), size=12, color="black", weight=ft.FontWeight.BOLD)],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=0
+            ),
             bgcolor=BALL_COLORS[str(i)],
             width=32, height=32,
-            alignment=ft.alignment.center,  # 文字居中
             on_click=on_ball(i), data=i
-        ) for i in range(1, 11)
-    ], wrap=True, spacing=4)
+        )
+    
+    ball_row = ft.Row([make_ball(i) for i in range(1, 11)], wrap=True, spacing=4)
     
     # ---- 开奖获取（真实 API）----
     def do_refresh(e=None):
